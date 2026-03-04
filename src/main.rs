@@ -3928,7 +3928,7 @@ Notes:
                 let pool = pool.clone();
                 let birthday_id = RoleId::new(1299153941623341056);
                 let birth_channel = ChannelId::new(1415398554700349592);
-                let birth_message = CreateMessage::new().content("<@&1299153941623341056> 🎉");
+                
                 async move {
                     loop {
                         let mut birth_users: Vec<Member> = Vec::new();
@@ -4015,11 +4015,11 @@ Notes:
                                     if birth_users.len() > 0 {
                                         _ = birth_channel.broadcast_typing(&http0).await;
                                         
-                                        let mut has_success = false;
+                                        let mut success_users_id = Vec::new();
                                         for user in &birth_users {
                                             match user.add_role(&http0, birthday_id).await {
                                                 Ok(_) => {
-                                                    has_success = true;
+                                                    success_users_id.push(user.user.id);
                                                     println!("[SYS] Birthday Role Added: {} ({})", user.user.id.get(), user.user.name);
                                                 }
                                                 Err(e) => {
@@ -4028,8 +4028,36 @@ Notes:
                                             }
                                         }
 
-                                        if has_success {
-                                            birth_channel.send_message(&http0, birth_message.clone()).await.unwrap();
+                                        if !success_users_id.is_empty() {
+                                            let mut lines = String::new();
+
+                                            for user_id in &success_users_id {
+                                                lines.push_str(&format!("- <@{}>\n", user_id));
+                                            }
+
+                                            let header = format!(
+                                                "<@&1299153941623341056>\n🎉 ({})\n",
+                                                success_users_id.len()
+                                            );
+
+                                            let full_content = format!("{}{}", header, lines);
+
+                                            let content = if full_content.len() > 2000 {
+                                                format!(
+                                                    "{}(Too many people's birthdays!)",
+                                                    header
+                                                )
+                                            } else {
+                                                full_content
+                                            };
+
+                                            let birth_message = CreateMessage::new().content(content);
+
+                                            if let Err(e) = birth_channel
+                                                .send_message(&http0, birth_message)
+                                                .await {
+                                                    eprintln!("[ERROR] Birthday send_message(): {:?}", e);
+                                            }
                                         }
                                     }
                                 }
