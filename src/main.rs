@@ -3818,8 +3818,7 @@ Notes:
                     .kind(CommandType::Message)
                     .integration_types(vec![InstallationContext::Guild]),
                 CreateCommand::new("delete_run")
-                    .description("Delete selected messages")
-                    .description_localized("ko", "선택된 메시지들을 제거")
+                    .kind(CommandType::Message)
                     .integration_types(vec![InstallationContext::Guild]),
                 CreateCommand::new("dont_chat")
                     .description("Whether or not to respond when the bot is called")
