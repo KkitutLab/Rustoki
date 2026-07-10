@@ -88,15 +88,18 @@ pub async fn db_new_key(
         .await?;
 
     for r in rows {
-        let json_str = String::from_utf8(r.value_json).unwrap();
-        let values: Vec<String> = serde_json::from_str(&json_str).unwrap();
+        let values: Vec<String> = serde_json::from_str(&r.value_json)
+            .map_err(|e| sqlx::Error::Protocol(format!("JSON parse error: {}", e).into()))?;
+            
         if values.contains(&key.to_string()) {
             return Err(sqlx::Error::Protocol("Key already exists".into()));
         }
     }
 
-    let value_json = serde_json::to_string(&[key]).unwrap();
-    let prob_json  = serde_json::to_string(&Vec::<String>::new()).unwrap();
+    let value_json = serde_json::to_string(&[key])
+        .map_err(|e| sqlx::Error::Protocol(format!("Serialization error: {}", e).into()))?;
+        
+    let prob_json = "[]";
 
     sqlx::query!(
         "INSERT INTO resp (value_json, prob_json) VALUES (?, ?)",
@@ -114,21 +117,22 @@ pub async fn db_add_resp(
     key: &str,
     resp: &str,
 ) -> Result<(), sqlx::Error> {
-    let row = sqlx::query!("SELECT id, value_json, prob_json FROM resp")
+    let rows = sqlx::query!("SELECT id, value_json, prob_json FROM resp")
         .fetch_all(pool)
         .await?;
 
-    for r in row {
-        let values_json = String::from_utf8(r.value_json).unwrap();
-        let values: Vec<String> = serde_json::from_str(&values_json).unwrap();
+    for r in rows {
+        let values: Vec<String> = serde_json::from_str(&r.value_json)
+            .map_err(|e| sqlx::Error::Protocol(format!("JSON parse error (value): {}", e).into()))?;
 
         if values.contains(&key.to_string()) {
-            let probs_json = String::from_utf8(r.prob_json).unwrap();
-            let mut probs: Vec<String> = serde_json::from_str(&probs_json).unwrap();
+            let mut probs: Vec<String> = serde_json::from_str(&r.prob_json)
+                .map_err(|e| sqlx::Error::Protocol(format!("JSON parse error (prob): {}", e).into()))?;
 
             probs.push(resp.to_string());
 
-            let new_probs_json = serde_json::to_string(&probs).unwrap();
+            let new_probs_json = serde_json::to_string(&probs)
+                .map_err(|e| sqlx::Error::Protocol(format!("Serialization error: {}", e).into()))?;
 
             sqlx::query!(
                 "UPDATE resp SET prob_json = ? WHERE id = ?",
@@ -150,21 +154,22 @@ pub async fn db_add_resp_bulk(
     key: &str,
     new_resps: &[String],
 ) -> Result<(), sqlx::Error> {
-    let row = sqlx::query!("SELECT id, value_json, prob_json FROM resp")
+    let rows = sqlx::query!("SELECT id, value_json, prob_json FROM resp")
         .fetch_all(pool)
         .await?;
 
-    for r in row {
-        let values_json = String::from_utf8(r.value_json).unwrap();
-        let values: Vec<String> = serde_json::from_str(&values_json).unwrap();
+    for r in rows {
+        let values: Vec<String> = serde_json::from_str(&r.value_json)
+            .map_err(|e| sqlx::Error::Protocol(format!("JSON parse error (value): {}", e).into()))?;
 
         if values.contains(&key.to_string()) {
-            let probs_json = String::from_utf8(r.prob_json).unwrap();
-            let mut probs: Vec<String> = serde_json::from_str(&probs_json).unwrap();
+            let mut probs: Vec<String> = serde_json::from_str(&r.prob_json)
+                .map_err(|e| sqlx::Error::Protocol(format!("JSON parse error (prob): {}", e).into()))?;
 
             probs.extend(new_resps.iter().cloned());
 
-            let new_probs_json = serde_json::to_string(&probs).unwrap();
+            let new_probs_json = serde_json::to_string(&probs)
+                .map_err(|e| sqlx::Error::Protocol(format!("Serialization error: {}", e).into()))?;
 
             sqlx::query!(
                 "UPDATE resp SET prob_json = ? WHERE id = ?",
@@ -191,7 +196,8 @@ pub async fn db_add_key(
         .await?;
 
     for r in rows {
-        let mut values: Vec<String> = serde_json::from_str(&String::from_utf8(r.value_json).unwrap()).unwrap();
+        let mut values: Vec<String> = serde_json::from_str(&r.value_json)
+            .map_err(|e| sqlx::Error::Protocol(format!("JSON parse error: {}", e).into()))?;
 
         if values.contains(&key.to_string()) {
             if values.contains(&new_key.to_string()) {
@@ -199,8 +205,8 @@ pub async fn db_add_key(
             }
 
             values.push(new_key.to_string());
-
-            let new_values_json = serde_json::to_string(&values).unwrap();
+            let new_values_json = serde_json::to_string(&values)
+                .map_err(|e| sqlx::Error::Protocol(format!("Serialization error: {}", e).into()))?;
 
             sqlx::query!(
                 "UPDATE resp SET value_json = ? WHERE id = ?",
@@ -220,14 +226,15 @@ pub async fn db_add_key(
 pub async fn db_add_key_bulk(
     pool: &MySqlPool,
     key: &str,
-    new_keys: &[String]
+    new_keys: &[String],
 ) -> Result<(), sqlx::Error> {
     let rows = sqlx::query!("SELECT id, value_json FROM resp")
         .fetch_all(pool)
         .await?;
 
     for r in rows {
-        let mut values: Vec<String> = serde_json::from_str(&String::from_utf8(r.value_json).unwrap()).unwrap();
+        let mut values: Vec<String> = serde_json::from_str(&r.value_json)
+            .map_err(|e| sqlx::Error::Protocol(format!("JSON parse error: {}", e).into()))?;
 
         if values.contains(&key.to_string()) {
             if new_keys.iter().any(|k| values.contains(k)) {
@@ -235,8 +242,9 @@ pub async fn db_add_key_bulk(
             }
 
             values.extend(new_keys.iter().cloned());
-
-            let new_values_json = serde_json::to_string(&values).unwrap();
+            
+            let new_values_json = serde_json::to_string(&values)
+                .map_err(|e| sqlx::Error::Protocol(format!("Serialization error: {}", e).into()))?;
 
             sqlx::query!(
                 "UPDATE resp SET value_json = ? WHERE id = ?",
@@ -262,10 +270,13 @@ pub async fn db_get_table(
         .await?;
 
     for r in rows {
-        let values: Vec<String> = serde_json::from_str(&String::from_utf8(r.value_json).unwrap()).unwrap();
+        let values: Vec<String> = serde_json::from_str(&r.value_json)
+            .map_err(|e| sqlx::Error::Protocol(format!("JSON parse error (value): {}", e).into()))?;
 
         if values.contains(&key.to_string()) {
-            let probs: Vec<String> = serde_json::from_str(&String::from_utf8(r.prob_json).unwrap()).unwrap();
+            let probs: Vec<String> = serde_json::from_str(&r.prob_json)
+                .map_err(|e| sqlx::Error::Protocol(format!("JSON parse error (prob): {}", e).into()))?;
+            
             return Ok(Some(Resp { values, probs }));
         }
     }
@@ -278,26 +289,27 @@ pub async fn db_remove_table(
     key: &str,
     force: bool,
 ) -> Result<(), sqlx::Error> {
+    // 1. 데이터 조회
     let rows = sqlx::query!("SELECT id, value_json FROM resp")
         .fetch_all(pool)
         .await?;
 
     for r in rows {
-        let values: Vec<String> = serde_json::from_str(&String::from_utf8(r.value_json).unwrap()).unwrap();
+        let values: Vec<String> = serde_json::from_str(&r.value_json)
+            .map_err(|e| sqlx::Error::Protocol(format!("JSON parse error: {}", e).into()))?;
 
         if values.contains(&key.to_string()) {
+            // 3. 비즈니스 로직 검증
             if values.len() > 1 && !force {
                 return Err(sqlx::Error::Protocol(
                     "Cannot remove: multiple keys in this record (use force=true to override)".into(),
                 ));
             }
 
-            sqlx::query!(
-                "DELETE FROM resp WHERE id = ?",
-                r.id
-            )
-            .execute(pool)
-            .await?;
+            // 4. 데이터 삭제
+            sqlx::query!("DELETE FROM resp WHERE id = ?", r.id)
+                .execute(pool)
+                .await?;
 
             return Ok(());
         }
@@ -317,19 +329,17 @@ pub async fn db_remove_resp(
         .await?;
 
     for r in rows {
-        let values: Vec<String> =
-            serde_json::from_str(&String::from_utf8(r.value_json).unwrap()).unwrap();
+        let values: Vec<String> = serde_json::from_str(&r.value_json)
+            .map_err(|e| sqlx::Error::Protocol(format!("JSON parse error (value): {}", e).into()))?;
 
         if values.contains(&key.to_string()) {
-            let mut probs: Vec<String> =
-                serde_json::from_str(&String::from_utf8(r.prob_json).unwrap()).unwrap();
+            let mut probs: Vec<String> = serde_json::from_str(&r.prob_json)
+                .map_err(|e| sqlx::Error::Protocol(format!("JSON parse error (prob): {}", e).into()))?;
 
             if multi {
                 probs.retain(|p| p != targets);
-            } else {
-                if let Some(pos) = probs.iter().position(|p| p == targets) {
-                    probs.remove(pos);
-                }
+            } else if let Some(pos) = probs.iter().position(|p| p == targets) {
+                probs.remove(pos);
             }
 
             if probs.is_empty() {
@@ -337,7 +347,9 @@ pub async fn db_remove_resp(
                     .execute(pool)
                     .await?;
             } else {
-                let probs_json = serde_json::to_string(&probs).unwrap();
+                let probs_json = serde_json::to_string(&probs)
+                    .map_err(|e| sqlx::Error::Protocol(format!("Serialization error: {}", e).into()))?;
+                    
                 sqlx::query!("UPDATE resp SET prob_json = ? WHERE id = ?", probs_json, r.id)
                     .execute(pool)
                     .await?;
