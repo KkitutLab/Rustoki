@@ -21,7 +21,7 @@ use serenity::all::{
 };
 use chrono::{Utc, Local, Duration, Timelike, Datelike, DateTime};
 use once_cell::sync::Lazy;
-use sqlx::{MySql, Pool, Row};
+use sqlx::{MySql, Pool, Row, QueryBuilder};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use tokio::time::sleep;
@@ -72,6 +72,116 @@ macro_rules! er {
     }};
 }
 
+static DISCORD_ID_ADMINS: &[u64] = &[
+    KKITUT_USERID.get(),
+    1202514875797213184,
+    507523158757212160,
+    412180095827181570,
+    682792713485418497,
+];
+
+static RTCMD_HELP_MSG: &str = "\
+```
+Rustoki Shell v0.1.0 -- made by Kkitut
+A minimal shell-like interface for Debug or Admin purposes.
+
+USAGE:
+    <! <command> [options] [args]
+    (Type `<! <command>` without arguments to see its usage.)
+
+AVAILABLE COMMANDS:
+    deunicode - Convert Unicode strings to ASCII-friendly output - https://github.com/kornelski/deunicode
+    embed - Send the embed to the desired channel
+    memory - Show memory usage
+    resp - Manage response from database
+    trap - Manage spam trap
+
+Type <! to see this message again.
+```
+";
+
+static RTCMD_USAGE_EMBED: &str = "\
+```
+embed <u64:ChannelId>
+    [--authortext/-at \"<string>\"/me]
+        ↳ string <= 256
+    [--authorurl/-au <string:url>]
+    [--authoravatar/-aa <string:url>/me]
+    [--color/-c <string:RRGGBB>]
+    [--description/-d \"<string>\"]
+        ↳ string <= 4096
+    [--field/-f \"<string:name>\" \"<string:value>\" <bool:inline(true|false)>]
+        ↳ MAXCOUNT <= 25 | name <= 256 | value <= 1024
+    [--footertext/-ft \"<string>\"/me]
+        ↳ string <= 2048
+    [--footericon/-fi <string:url/me>]
+    [--image/-i <string:url>]
+    [--thumbnail/-tn <string:url>/me]
+    [--timestamp/-ts <string:ISO8601/UNIX>/now/utc]
+    [--title/-t \"<string>\"]
+        ↳ string <= 256
+    [--url/-u <string:url>]
+
+Special values:
+    me   → use Your own info (avatar, name)
+    now  → current timestamp
+    utc  → current timestamp in UTC
+```
+";
+
+static RTCMD_USAGE_RESP: &str = "\
+resp <subcommand> [arguments]
+
+resp is a command that manages the response when <\" or 'Rustoki' is called.
+
+Subcommands:
+    update
+        ↳ Reload all resp data from the database and synchronize memory
+        ↳ Usage: resp update
+
+    new_key <string:key>
+        ↳ Create a new key with empty responses
+        ↳ Fails if the key already exists
+        ↳ Usage: resp new_key HELLO
+
+    add_key <string:key> <string:key2>
+    add_key <string:key> [\"<string:key2>\", ...]
+        ↳ Add one or multiple keys under an existing key
+        ↳ Duplicate keys are ignored and produce an error
+        ↳ Usage:
+            resp add_key HELLO GREET
+            resp add_key HELLO [\"GREET\", \"WELCOME\"]
+
+    add <string:key> \"<string:response>\"
+    add <string:key> [\"<string:response>\", ...]
+        ↳ Add single or multiple responses to a key
+        ↳ Usage:
+            resp add HELLO hi
+            resp add HELLO [\"hi\", \"hey\", \"welcome\"]
+
+    get_table <string:key>
+        ↳ Show all responses for the specified key
+        ↳ Usage: resp get_table HELLO
+
+    remove <string:key> \"<string:response>\" [-m/--multi]
+        ↳ Remove a response from a key
+        ↳ If -m/--multi is provided, removes all matching responses
+        ↳ Usage:
+            resp remove HELLO \"hi\"
+            resp remove HELLO \"hi\" -m
+
+    remove_table <string:key> DOUBLECHECK [-f/--force]
+        ↳ Remove the key and all associated responses
+        ↳ DOUBLECHECK is required for confirmation
+        ↳ -f/--force  Bypass additional checks (remove even if the key exists under another ID)
+        ↳ Usage: resp remove_table \"hello\" DOUBLECHECK -f
+Notes:
+    - JSON arrays are supported for bulk operations (e.g., add or add_key)
+    - Invalid JSON formats are ignored
+    - Commands are case-sensitive
+    - It contains an AUTOMATIC STRING PROCESSOR. You must use capital letters WITHOUT spaces or special characters
+";
+
 struct Handler {
     is_ready: Arc<AtomicBool>,
     delete_messages: Arc<Mutex<Vec<(u64, (u64, u64, u64), (u64, u64, u64), chrono::DateTime<Local>)>>>, //user, first, end, time. tuple(id, guild, channel)
@@ -82,6 +192,12 @@ struct Handler {
     blacklist_guilds: Arc<Mutex<Vec<u64>>>,
     dm_channels: Arc<Mutex<Vec<(u64, u64)>>>,
     trap_ids: Arc<Mutex<HashMap<u64, (u64, Option<u64>)>>>,
+}
+
+#[derive(sqlx::FromRow)]
+struct MessagePair {
+    bot: u64,
+    user: u64,
 }
 
 fn lng_trs<T>(is_korean: bool, en: T, ko: T) -> T {
@@ -623,35 +739,33 @@ impl EventHandler for Handler {
 
             if let Some((bot_channel_id, user_channel_id)) = dm_pair {
                 let pool = er!(get_pool_tokidm().await, "[ERROR] DM reaction_add bot->user get_pool_tokidm()");
-
                 let table_name = format!("c{}u{}", bot_channel_id, user_channel_id);
 
-                let query = format!(
-                    "SELECT bot, user FROM {} WHERE user = ?",
-                    table_name
-                );
+                let mut qb: QueryBuilder<MySql> = QueryBuilder::new("SELECT bot, user FROM ");
+                qb.push(&table_name);
+                qb.push(" WHERE user = ");
+                qb.push_bind(ret.message_id.get());
 
-                let mut result = sqlx::query(&query)
-                    .bind(ret.message_id.get())
+                let mut result = qb.build_query_as::<MessagePair>()
                     .fetch_optional(pool)
                     .await
                     .unwrap();
 
                 if result.is_none() {
-                    let query = format!(
-                        "SELECT bot, user FROM {} WHERE bot = ?",
-                        table_name
-                    );
-                    result = sqlx::query(&query)
-                        .bind(ret.message_id.get())
+                    let mut qb: QueryBuilder<MySql> = QueryBuilder::new("SELECT bot, user FROM ");
+                    qb.push(&table_name);
+                    qb.push(" WHERE bot = ");
+                    qb.push_bind(ret.message_id.get());
+                    
+                    result = qb.build_query_as::<MessagePair>()
                         .fetch_optional(pool)
                         .await
                         .unwrap();
                 }
 
                 if let Some(row) = result {
-                    let user_message_id: u64 = row.get("user");
-                    let bot_message_id: u64 = row.get("bot");
+                    let bot_message_id = row.bot;
+                    let user_message_id = row.user;
 
                     let target_message_id =
                         if ret.message_id.get() == user_message_id {
@@ -736,32 +850,31 @@ impl EventHandler for Handler {
                 let pool = er!(get_pool_tokidm().await, "[ERROR] DM reaction_add user->bot get_pool_tokidm()");
                 let table_name = format!("c{}u{}", bot_channel_id, user_channel_id);
 
-                let query = format!(
-                    "SELECT bot, user FROM {} WHERE user = ?",
-                    table_name
-                );
+                let mut qb: QueryBuilder<MySql> = QueryBuilder::new("SELECT bot, user FROM ");
+                qb.push(&table_name);
+                qb.push(" WHERE user = ");
+                qb.push_bind(ret.message_id.get());
 
-                let mut result = sqlx::query(&query)
-                    .bind(ret.message_id.get())
+                let mut result = qb.build_query_as::<MessagePair>()
                     .fetch_optional(pool)
                     .await
                     .unwrap();
 
                 if result.is_none() {
-                    let query = format!(
-                        "SELECT bot, user FROM {} WHERE bot = ?",
-                        table_name
-                    );
-                    result = sqlx::query(&query)
-                        .bind(ret.message_id.get())
+                    let mut qb: QueryBuilder<MySql> = QueryBuilder::new("SELECT bot, user FROM ");
+                    qb.push(&table_name);
+                    qb.push(" WHERE bot = ");
+                    qb.push_bind(ret.message_id.get());
+
+                    result = qb.build_query_as::<MessagePair>()
                         .fetch_optional(pool)
                         .await
                         .unwrap();
                 }
 
                 if let Some(row) = result {
-                    let user_message_id: u64 = row.get("user");
-                    let bot_message_id: u64 = row.get("bot");
+                    let bot_message_id = row.bot;
+                    let user_message_id = row.user;
 
                     let target_message_id =
                         if ret.message_id.get() == user_message_id {
@@ -805,32 +918,31 @@ impl EventHandler for Handler {
             let pool = er!(get_pool_tokidm().await, "[ERROR] DM reaction_remove get_pool_tokidm()");
             let table_name = format!("c{}u{}", bot_channel_id, user_channel_id);
 
-            let query = format!(
-                "SELECT bot, user FROM {} WHERE user = ?",
-                table_name
-            );
+            let mut qb: QueryBuilder<MySql> = QueryBuilder::new("SELECT bot, user FROM ");
+            qb.push(&table_name);
+            qb.push(" WHERE user = ");
+            qb.push_bind(ret.message_id.get());
 
-            let mut result = sqlx::query(&query)
-                .bind(ret.message_id.get())
+            let mut result = qb.build_query_as::<MessagePair>()
                 .fetch_optional(pool)
                 .await
                 .unwrap();
 
             if result.is_none() {
-                let query = format!(
-                    "SELECT bot, user FROM {} WHERE bot = ?",
-                    table_name
-                );
-                result = sqlx::query(&query)
-                    .bind(ret.message_id.get())
+                let mut qb: QueryBuilder<MySql> = QueryBuilder::new("SELECT bot, user FROM ");
+                qb.push(&table_name);
+                qb.push(" WHERE bot = ");
+                qb.push_bind(ret.message_id.get());
+                
+                result = qb.build_query_as::<MessagePair>()
                     .fetch_optional(pool)
                     .await
                     .unwrap();
             }
 
             if let Some(row) = result {
-                let user_message_id: u64 = row.get("user");
-                let bot_message_id: u64 = row.get("bot");
+                    let bot_message_id = row.bot;
+                    let user_message_id = row.user;
 
                 let target_message_id =
                     if ret.message_id.get() == user_message_id {
@@ -954,61 +1066,40 @@ impl EventHandler for Handler {
                     return;
                 }
 
-                let query = format!(
-                    "SELECT bot FROM {} WHERE user = ?",
-                    table_name
-                );
+                let mut qb: QueryBuilder<MySql> = QueryBuilder::new("SELECT bot FROM ");
+                qb.push(&table_name);
+                qb.push(" WHERE user = ");
+                qb.push_bind(message_id.get());
 
-                if let Ok(row) = sqlx::query(&query)
-                    .bind(message_id.get())
-                    .fetch_one(pool)
-                    .await
-                {
-                    use sqlx::Row;
-
-                    let bot_message_id: u64 = row.get("bot");
-
+                if let Ok(bot_message_id) = qb.build_query_scalar::<u64>().fetch_one(pool).await {
                     if let Err(e) = ChannelId::new(user_channel_id)
                         .delete_message(&ctx.http, MessageId::new(bot_message_id))
                         .await
                     {
-                        eprintln!(
-                            "[ERROR] Failed to delete DM message {}: {}",
-                            user_channel_id, e
-                        );
+                        eprintln!("[ERROR] Failed to delete DM message {}: {}", user_channel_id, e);
                     } else {
-                        let query =
-                            format!("DELETE FROM {} WHERE bot = ?", table_name);
-                        let _ = sqlx::query(&query)
-                            .bind(bot_message_id)
-                            .execute(pool)
-                            .await;
+                        let mut qb: QueryBuilder<MySql> = QueryBuilder::new("DELETE FROM ");
+                        qb.push(&table_name);
+                        qb.push(" WHERE bot = ");
+                        qb.push_bind(bot_message_id);
+                        let _ = qb.build().execute(pool).await;
                     }
                 }
-
                 return;
             }
 
-            let query = format!(
-                "SELECT bot FROM {} WHERE user = ?",
-                table_name
-            );
+            let mut qb_select: QueryBuilder<MySql> = QueryBuilder::new("SELECT bot FROM ");
+            qb_select.push(&table_name);
+            qb_select.push(" WHERE user = ");
+            qb_select.push_bind(message_id.get());
 
-            if let Ok(row) = sqlx::query(&query)
-                .bind(message_id.get())
-                .fetch_one(pool)
-                .await
-            {
-                use sqlx::Row;
-
-                let bot_message_id: u64 = row.get("bot");
-
-                let query =
-                    format!("DELETE FROM {} WHERE bot = ?", table_name);
-                let _ = sqlx::query(&query)
-                    .bind(bot_message_id)
-                    .execute(pool)
-                    .await;
+            if let Ok(bot_message_id) = qb_select.build_query_scalar::<u64>().fetch_one(pool).await {
+                let mut qb_delete: QueryBuilder<MySql> = QueryBuilder::new("DELETE FROM ");
+                qb_delete.push(&table_name);
+                qb_delete.push(" WHERE bot = ");
+                qb_delete.push_bind(bot_message_id);
+                
+                let _ = qb_delete.build().execute(pool).await;
 
                 let embed = CreateEmbed::new()
                     .title("제거됨")
@@ -1065,21 +1156,20 @@ impl EventHandler for Handler {
             if let Some((bot_channel_id, user_channel_id)) = dm_pair {
                 let pool = er!(get_pool_tokidm().await, "[ERROR] DM message_update bot->user get_pool_tokidm()");
                 let table_name = format!("c{}u{}", bot_channel_id, user_channel_id);
+
                 if let Some(pos) = table_name.find('u') {
                     if let Ok(user_channel_id_u64) = table_name[pos + 1..].parse::<u64>() {
-                        let query = format!(
-                            "SELECT bot FROM {} WHERE user = ?",
-                            table_name
-                        );
-                        
-                        let result = sqlx::query(&query)
-                            .bind(event.id.get())
+                        let mut qb: QueryBuilder<MySql> = QueryBuilder::new("SELECT bot FROM ");
+                        qb.push(&table_name);
+                        qb.push(" WHERE user = ");
+                        qb.push_bind(event.id.get());
+
+                        let result = qb.build_query_scalar::<u64>()
                             .fetch_one(pool)
                             .await;
 
                         match result {
-                            Ok(row) => {
-                                let bot_message_id: u64 = row.get("bot");
+                            Ok(bot_message_id) => {
                                 let mut message = EditMessage::new();
                                     
                                 if let Some(content) = event.content {
@@ -1158,19 +1248,17 @@ impl EventHandler for Handler {
 
                 if let Some(pos) = table_name.find('u') {
                     if let Ok(bot_channel_id_u64) = table_name[1..pos].parse::<u64>() {
-                        let query = format!(
-                            "SELECT bot FROM {} WHERE user = ?",
-                            table_name
-                        );
-                        
-                        let result = sqlx::query(&query)
-                            .bind(event.id.get())
+                        let mut qb: QueryBuilder<MySql> = QueryBuilder::new("SELECT bot FROM ");
+                        qb.push(&table_name);
+                        qb.push(" WHERE user = ");
+                        qb.push_bind(event.id.get());
+
+                        let result = qb.build_query_scalar::<u64>()
                             .fetch_one(pool)
                             .await;
 
                         match result {
-                            Ok(row) => {
-                                let bot_message_id: u64 = row.get("bot");
+                            Ok(bot_message_id) => {
                                 let mut message = EditMessage::new();
                                     
                                 if let Some(content) = event.content {
@@ -1374,41 +1462,14 @@ impl EventHandler for Handler {
             }
 
             if msg.content.trim_start().starts_with("<!") {
-                let allowed_ids = [
-                    KKITUT_USERID.get(),
-                    1202514875797213184,
-                    507523158757212160,
-                    412180095827181570,
-                    682792713485418497,
-                ];
-                if !allowed_ids.contains(&msg.author.id.get()) {
+                if !DISCORD_ID_ADMINS.contains(&msg.author.id.get()) {
                     return;
                 }
             
                 let rtcmd = msg.content.trim_start_matches("<!").trim_start();
             
                 if rtcmd.is_empty() {
-                    let help_msg =
-"\
-```
-Rustoki Shell v0.1.0 -- made by Kkitut
-A minimal shell-like interface for Debug or Admin purposes.
-
-USAGE:
-    <! <command> [options] [args]
-    (Type `<! <command>` without arguments to see its usage.)
-
-AVAILABLE COMMANDS:
-    deunicode - Convert Unicode strings to ASCII-friendly output - https://github.com/kornelski/deunicode
-    embed - Send the embed to the desired channel
-    memory - Show memory usage
-    resp - Manage response from database
-    trap - Manage spam trap
-
-Type <! to see this message again.
-```
-";
-                    if let Err(e) = msg.channel_id.say(&ctx.http, help_msg).await {
+                    if let Err(e) = msg.channel_id.say(&ctx.http, RTCMD_HELP_MSG).await {
                         eprintln!("[ERROR] <! say(): {:?}", e);
                     }
                     return;
@@ -1429,36 +1490,7 @@ Type <! to see this message again.
                 } else if let Some(rest) = rtcmd.strip_prefix("embed") {
                     let arg = rest.trim();
                     if arg.is_empty() {
-                        let usage =
-"\
-```
-embed <u64:ChannelId>
-    [--authortext/-at \"<string>\"/me]
-        ↳ string <= 256
-    [--authorurl/-au <string:url>]
-    [--authoravatar/-aa <string:url>/me]
-    [--color/-c <string:RRGGBB>]
-    [--description/-d \"<string>\"]
-        ↳ string <= 4096
-    [--field/-f \"<string:name>\" \"<string:value>\" <bool:inline(true|false)>]
-        ↳ MAXCOUNT <= 25 | name <= 256 | value <= 1024
-    [--footertext/-ft \"<string>\"/me]
-        ↳ string <= 2048
-    [--footericon/-fi <string:url/me>]
-    [--image/-i <string:url>]
-    [--thumbnail/-tn <string:url>/me]
-    [--timestamp/-ts <string:ISO8601/UNIX>/now/utc]
-    [--title/-t \"<string>\"]
-        ↳ string <= 256
-    [--url/-u <string:url>]
-
-Special values:
-    me   → use Your own info (avatar, name)
-    now  → current timestamp
-    utc  → current timestamp in UTC
-```
-";
-                        if let Err(e) = msg.channel_id.say(&ctx.http, usage).await {
+                        if let Err(e) = msg.channel_id.say(&ctx.http, RTCMD_USAGE_EMBED).await {
                             eprintln!("[ERROR] <! say(): {:?}", e);
                         }
                         return;
@@ -1830,59 +1862,7 @@ Special values:
                     let arg = rtcmd.trim_start_matches("resp").trim();
 
                     if arg.is_empty() {
-                        response = String::from(
-"\
-resp <subcommand> [arguments]
-
-resp is a command that manages the response when <\" or 'Rustoki' is called.
-
-Subcommands:
-    update
-        ↳ Reload all resp data from the database and synchronize memory
-        ↳ Usage: resp update
-
-    new_key <string:key>
-        ↳ Create a new key with empty responses
-        ↳ Fails if the key already exists
-        ↳ Usage: resp new_key HELLO
-
-    add_key <string:key> <string:key2>
-    add_key <string:key> [\"<string:key2>\", ...]
-        ↳ Add one or multiple keys under an existing key
-        ↳ Duplicate keys are ignored and produce an error
-        ↳ Usage:
-            resp add_key HELLO GREET
-            resp add_key HELLO [\"GREET\", \"WELCOME\"]
-
-    add <string:key> \"<string:response>\"
-    add <string:key> [\"<string:response>\", ...]
-        ↳ Add single or multiple responses to a key
-        ↳ Usage:
-            resp add HELLO hi
-            resp add HELLO [\"hi\", \"hey\", \"welcome\"]
-
-    get_table <string:key>
-        ↳ Show all responses for the specified key
-        ↳ Usage: resp get_table HELLO
-
-    remove <string:key> \"<string:response>\" [-m/--multi]
-        ↳ Remove a response from a key
-        ↳ If -m/--multi is provided, removes all matching responses
-        ↳ Usage:
-            resp remove HELLO \"hi\"
-            resp remove HELLO \"hi\" -m
-
-    remove_table <string:key> DOUBLECHECK [-f/--force]
-        ↳ Remove the key and all associated responses
-        ↳ DOUBLECHECK is required for confirmation
-        ↳ -f/--force  Bypass additional checks (remove even if the key exists under another ID)
-        ↳ Usage: resp remove_table \"hello\" DOUBLECHECK -f
-Notes:
-    - JSON arrays are supported for bulk operations (e.g., add or add_key)
-    - Invalid JSON formats are ignored
-    - Commands are case-sensitive
-    - It contains an AUTOMATIC STRING PROCESSOR. You must use capital letters WITHOUT spaces or special characters
-");
+                        response = RTCMD_USAGE_RESP.to_string();
                     } else if arg.starts_with("update") {
                         if arg.trim() != "update" {
                             response = String::from("[ERR] Invalid arguments for 'update'");
@@ -2191,29 +2171,31 @@ Notes:
                         }
                         if let Some(message_reference) = msg.message_reference {
                             if let Some(reference_message_id) = message_reference.message_id {
-                                let query = format!(
-                                    "SELECT bot, user FROM {} WHERE bot = ?",
-                                    table_name
-                                );
-                                let mut result = sqlx::query(&query)
-                                    .bind(reference_message_id.get())
+                                let mut qb: QueryBuilder<MySql> = QueryBuilder::new("SELECT bot, user FROM ");
+                                qb.push(&table_name);
+                                qb.push(" WHERE bot = ");
+                                qb.push_bind(reference_message_id.get());
+
+                                let mut result = qb.build_query_as::<MessagePair>()
                                     .fetch_one(pool)
                                     .await;
+
                                 if result.is_err() {
-                                    let query = format!(
-                                        "SELECT bot, user FROM {} WHERE user = ?",
-                                        table_name
-                                    );
-                                    result = sqlx::query(&query)
-                                        .bind(reference_message_id.get())
+                                    let mut qb: QueryBuilder<MySql> = QueryBuilder::new("SELECT bot, user FROM ");
+                                    qb.push(&table_name);
+                                    qb.push(" WHERE user = ");
+                                    qb.push_bind(reference_message_id.get());
+
+                                    result = qb.build_query_as::<MessagePair>()
                                         .fetch_one(pool)
                                         .await;
                                 }
             
                                 match result {
                                     Ok(row) => {
-                                        let user_message_id: u64 = row.get("user");
-                                        let bot_message_id: u64 = row.get("bot");
+                                        let bot_message_id = row.bot;
+                                        let user_message_id = row.user;
+
                                         let target_message_id = if user_message_id == reference_message_id.get() {
                                             bot_message_id
                                         } else {
@@ -2270,18 +2252,20 @@ Notes:
                         let is_err = if is_not_empty {
                             match ChannelId::new(user_channel_id_u64).send_message(&ctx.http, message).await {
                                 Ok(sent_message) => {
-                                    let query = format!(
-                                        "INSERT INTO {} (bot, user) VALUES (?, ?)",
-                                        table_name
-                                    );
-                            
-                                    if let Err(e) = sqlx::query(&query)
-                                        .bind(sent_message.id.get())
-                                        .bind(msg.id.get()) 
-                                        .execute(pool)
-                                        .await {
-                                            eprintln!("[ERROR] Failed to insert into TOKIDMtable_name: {:?}", e);
-                                        }
+                                    let mut qb: QueryBuilder<MySql> = QueryBuilder::new("INSERT INTO ");
+                                    qb.push(&table_name);
+                                    qb.push(" (bot, user) VALUES (");
+
+                                    let mut separated = qb.separated(", ");
+                                    separated.push_bind(sent_message.id.get());
+                                    separated.push_bind(msg.id.get());
+
+                                    qb.push(")");
+
+                                    if let Err(e) = qb.build().execute(pool).await {
+                                        eprintln!("[ERROR] Failed to insert into {}: {:?}", table_name, e);
+                                    }
+
                                     0
                                 }
                                 Err(e) => {
@@ -2416,15 +2400,15 @@ Notes:
                 }
 
                 let table_name = format!("c{}u{}", channel_id.get(), msg.channel_id.get());
-                let query = format!(
-                    "CREATE TABLE IF NOT EXISTS {} (
-                        bot BIGINT UNSIGNED NOT NULL,
-                        user BIGINT UNSIGNED NOT NULL
-                    )",
-                    table_name
-                );
 
-                if let Err(e) = sqlx::query(&query).execute(pool).await {
+                let mut qb: QueryBuilder<MySql> = QueryBuilder::new("CREATE TABLE IF NOT EXISTS ");
+                qb.push(&table_name);
+                qb.push(" (
+                    bot BIGINT UNSIGNED NOT NULL,
+                    user BIGINT UNSIGNED NOT NULL
+                )");
+
+                if let Err(e) = qb.build().execute(pool).await {
                     eprintln!("[ERROR] Failed to create table {}: {:?}", table_name, e);
                 }
 
@@ -2473,29 +2457,30 @@ Notes:
                     }
                     if let Some(message_reference) = msg.message_reference {
                         if let Some(reference_message_id) = message_reference.message_id {
-                            let query = format!(
-                                "SELECT bot, user FROM {} WHERE bot = ?",
-                                table_name
-                            );
-                            let mut result = sqlx::query(&query)
-                                .bind(reference_message_id.get())
+                            let mut qb: QueryBuilder<MySql> = QueryBuilder::new("SELECT bot, user FROM ");
+                            qb.push(&table_name);
+                            qb.push(" WHERE bot = ");
+                            qb.push_bind(reference_message_id.get());
+
+                            let mut result = qb.build_query_as::<MessagePair>()
                                 .fetch_one(pool)
                                 .await;
+
                             if result.is_err() {
-                                let query = format!(
-                                    "SELECT bot, user FROM {} WHERE user = ?",
-                                    table_name
-                                );
-                                result = sqlx::query(&query)
-                                    .bind(reference_message_id.get())
+                                let mut qb: QueryBuilder<MySql> = QueryBuilder::new("SELECT bot, user FROM ");
+                                qb.push(&table_name);
+                                qb.push(" WHERE user = ");
+                                qb.push_bind(reference_message_id.get());
+
+                                result = qb.build_query_as::<MessagePair>()
                                     .fetch_one(pool)
                                     .await;
                             }
         
                             match result {
                                 Ok(row) => {
-                                    let user_message_id: u64 = row.get("user");
-                                    let bot_message_id: u64 = row.get("bot");
+                                    let bot_message_id = row.bot;
+                                    let user_message_id = row.user;
                                     let target_message_id = if user_message_id == reference_message_id.get() {
                                         bot_message_id
                                     } else {
@@ -2553,14 +2538,20 @@ Notes:
                     let is_err = if is_not_empty {
                         match bot_channel_id.send_message(&ctx.http, message).await {
                             Ok(sent_message) => {
-                                let query = format!("INSERT INTO {} (bot, user) VALUES (?, ?)", table_name);
-                                if let Err(e) = sqlx::query(&query)
-                                    .bind(sent_message.id.get())
-                                    .bind(msg.id.get())
-                                    .execute(pool)
-                                    .await {
-                                    eprintln!("[ERROR] Failed to insert into TOKIDM table_name: {:?}", e);
+                                let mut qb: QueryBuilder<MySql> = QueryBuilder::new("INSERT INTO ");
+                                qb.push(&table_name);
+                                qb.push(" (bot, user) VALUES (");
+
+                                let mut separated = qb.separated(", ");
+                                separated.push_bind(sent_message.id.get());
+                                separated.push_bind(msg.id.get());
+
+                                qb.push(")");
+
+                                if let Err(e) = qb.build().execute(pool).await {
+                                    eprintln!("[ERROR] Failed to insert into {}: {:?}", table_name, e);
                                 }
+
                                 0
                             }
                             Err(e) => {
