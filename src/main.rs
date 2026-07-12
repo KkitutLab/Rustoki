@@ -232,12 +232,8 @@ fn update_avatar_size(url: &str) -> String {
         return url.to_string();
     }
 
-    if url.contains("?size=") {
-        let parts: Vec<&str> = url.split("?size=").collect();
-        parts[0].to_string() + "?size=4096"
-    } else {
-        url.to_string() + "?size=4096"
-    }
+    let base = url.split_once("?size=").map(|(base, _)| base).unwrap_or(url);
+    format!("{}?size=4096", base)
 }
 
 async fn fetch_image_from_url(url: &str) -> Result<ImageBuffer<Rgb<u8>, Vec<u8>>, Box<dyn std::error::Error + Send + Sync>> {
@@ -274,25 +270,6 @@ fn average_center_color(img: &RgbImage) -> image::Rgb<u8> {
         (g_sum / count) as u8,
         (b_sum / count) as u8,
     ])
-}
-
-async fn get_user_info(http: &serenity::http::Http, user_id: serenity::model::id::UserId) -> Result<(String, String), Box<dyn std::error::Error>> {
-    let route = Route::User { user_id };
-    let request = Request::new(route, LightMethod::Get);
-
-    let response = http.request(request).await?;
-    let bytes = response.bytes().await?;
-    let json: serde_json::Value = serde_json::from_slice(&bytes)?;
-
-    let username = json["username"].as_str().unwrap_or("Unknown").to_string();
-
-    let avatar_url = if let Some(avatar_hash) = json["avatar"].as_str() {
-        format!("https://cdn.discordapp.com/avatars/{}/{}.png", user_id.get(), avatar_hash)
-    } else {
-        "No avatar".to_string()
-    };
-
-    Ok((username, avatar_url))
 }
 
 async fn get_vmrss_mb() -> Result<f64, String> {
@@ -2701,11 +2678,11 @@ impl EventHandler for Handler {
                                                     lng_trs(lng,"Name","이름"), username, lng_trs(lng,"Global Name","전역 이름"), global_display_name
                                                 ));
                                             }
-                                            let userfaceup = update_avatar_size(user.face().as_str());
+                                            let userfaceup = update_avatar_size(&user.face());
                                             let thumbnail_url = if let Some(guild_avatar) = member.avatar_url() {
                                                 if let Some(option) = command.data.options.get(1) {
                                                     if let Some(isserver) = option.value.as_bool() {
-                                                        if isserver {update_avatar_size(guild_avatar.as_str())} else {userfaceup}
+                                                        if isserver {update_avatar_size(&guild_avatar)} else {userfaceup}
                                                     } else {
                                                         userfaceup
                                                     }
@@ -2717,11 +2694,11 @@ impl EventHandler for Handler {
                                             };
                                             embed = embed.thumbnail(thumbnail_url);
                                         } else {
-                                            match get_user_info(&ctx.http, user_id).await {
-                                                Ok((username, avatar_url)) => {
+                                            match ctx.http.get_user(user_id).await {
+                                                Ok(user) => {
                                                     embed = embed
-                                                        .thumbnail(update_avatar_size(&avatar_url))
-                                                        .description(format!("**{}:** `{}`", lng_trs(lng, "Name", "이름"), username));
+                                                        .thumbnail(update_avatar_size(&user.face()))
+                                                        .description(format!("**{}:** `{}`", lng_trs(lng, "Name", "이름"), user.name));
                                                 }
                                                 Err(e) => {
                                                     eprintln!("[ERROR] get_user_info: {:?}", e);
