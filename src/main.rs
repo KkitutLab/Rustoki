@@ -3597,31 +3597,22 @@ impl EventHandler for Handler {
 
                         match (user1, user2) {
                             (Some(u1_id), Some(u2_id)) => {
-                               let id1 = u1_id.get();
+                                let id1 = u1_id.get();
                                 let id2 = u2_id.get();
 
                                 let is_same = id1 == id2;
 
                                 let (low_id, high_id) = if id1 < id2 { (id1, id2) } else { (id2, id1) };
 
-                                let hash1_str = hex::encode(sha2::Sha256::digest(low_id.to_string().as_bytes()));
-                                let hash2_str = hex::encode(sha2::Sha256::digest(high_id.to_string().as_bytes()));
+                                let combined_id_str = format!("{}{}", low_id, high_id);
+                                let hash_str = hex::encode(sha2::Sha256::digest(combined_id_str.as_bytes()));
 
-                                let (char1, char2) = if is_same {
-                                    (
-                                        hash1_str.chars().nth(12).unwrap(),
-                                        hash1_str.chars().nth(13).unwrap()
-                                    )
-                                } else {
-                                    (
-                                        hash1_str.chars().nth(12).unwrap(),
-                                        hash2_str.chars().nth(12).unwrap()
-                                    )
-                                };
-
+                                let char1 = hash_str.chars().nth(12).unwrap();
+                                let char2 = hash_str.chars().nth(13).unwrap();
                                 let combined_hex = format!("{}{}", char1, char2);
+
                                 let combined_val = u16::from_str_radix(&combined_hex, 16).unwrap_or(0);
-                                let score = (combined_val as f32 / 255.0) * 100.0;
+                                let score = ((combined_val as f32 / 255.0) * 100.0).round() as u32;
 
                                 let embed = CreateEmbed::new()
                                     .title("Match Result")
