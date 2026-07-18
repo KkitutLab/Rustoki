@@ -3618,7 +3618,7 @@ impl EventHandler for Handler {
                                     .title("Match Result")
                                    .description(format!(
                                         "### **<@{}>** <-> **<@{}>** : **{}%**",
-                                        id1, id2, score.round() as u32
+                                        id1, id2, score
                                     ))
                                     .color(0xFFAAAA)
                                     .timestamp(Timestamp::now());
