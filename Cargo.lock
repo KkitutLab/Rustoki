@@ -9,6 +9,7 @@ dependencies = [
  "chrono",
  "deunicode",
  "dotenvy",
+ "hex",
  "image",
  "meval",
  "mysql_async",
