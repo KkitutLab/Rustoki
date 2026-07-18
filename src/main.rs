@@ -31,7 +31,7 @@ use image::{Pixel, RgbImage, ImageBuffer, Rgb};
 use serenity::json::Value;
 use serenity::http::LightMethod;
 use sqlx::MySqlPool;
-use sha2::{Sha256, Digest};
+use sha2::Digest;
 
 mod response;
 use response::{
