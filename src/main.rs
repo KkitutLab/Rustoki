@@ -31,6 +31,7 @@ use image::{Pixel, RgbImage, ImageBuffer, Rgb};
 use serenity::json::Value;
 use serenity::http::LightMethod;
 use sqlx::MySqlPool;
+use sha2::{Sha256, Digest};
 
 mod response;
 use response::{
@@ -3585,6 +3586,67 @@ impl EventHandler for Handler {
                             eprintln!("[ERROR] Command create_response(): {:?}", e);
                         }
                     },
+                    "match" => {
+                        if let Err(e) = command.defer(&ctx.http).await {
+                            eprintln!("[ERROR] Command defer(): {:?}", e);
+                            return;
+                        }
+
+                        let user1 = command.data.options.get(0).and_then(|o| o.value.as_user_id());
+                        let user2 = command.data.options.get(1).and_then(|o| o.value.as_user_id());
+
+                        match (user1, user2) {
+                            (Some(u1_id), Some(u2_id)) => {
+                               let id1 = u1_id.get();
+                                let id2 = u2_id.get();
+
+                                let is_same = id1 == id2;
+
+                                let (low_id, high_id) = if id1 < id2 { (id1, id2) } else { (id2, id1) };
+
+                                let hash1_str = hex::encode(sha2::Sha256::digest(low_id.to_string().as_bytes()));
+                                let hash2_str = hex::encode(sha2::Sha256::digest(high_id.to_string().as_bytes()));
+
+                                let (char1, char2) = if is_same {
+                                    (
+                                        hash1_str.chars().nth(12).unwrap(),
+                                        hash1_str.chars().nth(13).unwrap()
+                                    )
+                                } else {
+                                    (
+                                        hash1_str.chars().nth(12).unwrap(),
+                                        hash2_str.chars().nth(12).unwrap()
+                                    )
+                                };
+
+                                let combined_hex = format!("{}{}", char1, char2);
+                                let combined_val = u16::from_str_radix(&combined_hex, 16).unwrap_or(0);
+                                let score = (combined_val as f32 / 255.0) * 100.0;
+
+                                let embed = CreateEmbed::new()
+                                    .title("Match Result")
+                                   .description(format!(
+                                        "### **<@{}>** <-> **<@{}>** : **{}%**",
+                                        id1, id2, score.round() as u32
+                                    ))
+                                    .color(0xFFAAAA)
+                                    .timestamp(Timestamp::now());
+
+                                if let Err(e) = command.create_followup(&ctx.http, CreateInteractionResponseFollowup::new().add_embed(embed)).await {
+                                    eprintln!("[ERROR] match command response: {:?}", e);
+                                }
+                            }
+                            _ => {
+                                if let Err(e) = command.create_followup(&ctx.http, 
+                                    CreateInteractionResponseFollowup::new()
+                                        .content(lng_trs(lng, "Please select both users.", "두 유저를 모두 선택해주세요."))
+                                        .ephemeral(true)
+                                ).await {
+                                    eprintln!("[ERROR] Command create_followup(): {:?}", e);
+                                }
+                            }
+                        }
+                    },
                     _ => {
                         if let Err(e) = command.create_response(&ctx.http, CreateInteractionResponse::Message(CreateInteractionResponseMessage::new().content(lng_trs(lng,"command does not exist","존재하지 않는 명령어야")).ephemeral(true))).await {
                             eprintln!("[ERROR] Command create_response(): {:?}", e);
@@ -3835,7 +3897,20 @@ impl EventHandler for Handler {
                     .description("Remove a trap")
                     .description_localized("ko", "함정을 제거")
                     .integration_types(vec![InstallationContext::Guild]),
-
+                CreateCommand::new("match")
+                    .description("Displays the matching virtual compatibility between two users")
+                    .description_localized("ko", "두 유저간 가상의 매칭 수치를 출력합니다")
+                    .add_option(
+                        CreateCommandOption::new(CommandOptionType::User, "user1", "첫 번째 유저")
+                            .description_localized("ko", "첫 번째 유저")
+                            .required(true),
+                    )
+                    .add_option(
+                        CreateCommandOption::new(CommandOptionType::User, "user2", "두 번째 유저")
+                            .description_localized("ko", "두 번째 유저")
+                            .required(true),
+                    )
+                    .integration_types(vec![InstallationContext::Guild, InstallationContext::User])
             ])
             .await {
                 Ok(_) => {},

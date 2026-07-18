@@ -24,3 +24,4 @@ deunicode = "1.6.2"
 phf = { version = "0.14.0", features = ["macros"]}
 procfs = "0.18.0"
 shell-words = "1.1.1"
+sha2 = "0.11.0"
