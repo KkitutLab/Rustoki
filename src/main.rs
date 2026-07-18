@@ -3600,8 +3600,6 @@ impl EventHandler for Handler {
                                 let id1 = u1_id.get();
                                 let id2 = u2_id.get();
 
-                                let is_same = id1 == id2;
-
                                 let (low_id, high_id) = if id1 < id2 { (id1, id2) } else { (id2, id1) };
 
                                 let combined_id_str = format!("{}{}", low_id, high_id);
