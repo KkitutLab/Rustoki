@@ -4,6 +4,7 @@ use serenity::model::id::{ChannelId, GuildId, UserId};
 pub static BOT_USERID: UserId = UserId::new(1286264098987835445);
 pub static GUILD_ID: GuildId = GuildId::new(1027978441573793853);
 pub static KKITUT_USERID: UserId = UserId::new(700176751422341201);
+pub static KAGO_USERID: UserId = UserId::new(1561197947775885392);
 
 pub static CHANNELID_LOG_SECRET: Lazy<ChannelId> =
     Lazy::new(|| ChannelId::new(1208334066873798726));
@@ -11,6 +12,7 @@ pub static CHANNELID_PIN: Lazy<ChannelId> = Lazy::new(|| ChannelId::new(13997600
 
 pub static DISCORD_ID_ADMINS: &[u64] = &[
     KKITUT_USERID.get(),
+    KAGO_USERID.get(),
     1202514875797213184,
     507523158757212160,
     412180095827181570,
