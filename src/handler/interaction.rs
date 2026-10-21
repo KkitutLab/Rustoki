@@ -6,6 +6,7 @@ use tokio::sync::Mutex;
 
 use crate::commands::slash::delete::DeleteMessagesStore;
 use crate::commands::slash::trap::TrapIdsStore;
+use crate::commands::slash::xfix::XfixStore;
 use crate::commands::slash::{dispatch_component, dispatch_slash_command};
 use crate::response::Resp;
 
@@ -19,6 +20,7 @@ pub async fn handle_interaction(
     delete_messages: &DeleteMessagesStore,
     dm_channels: &Arc<Mutex<Vec<(u64, u64)>>>,
     trap_ids: &TrapIdsStore,
+    xfix: &XfixStore,
 ) {
     match interaction {
         Interaction::Command(command) => {
@@ -31,6 +33,7 @@ pub async fn handle_interaction(
                 delete_messages,
                 dm_channels,
                 trap_ids,
+                xfix,
             )
             .await;
         }

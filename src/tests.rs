@@ -2,6 +2,7 @@ use std::sync::Arc;
 use tokio::sync::Mutex;
 
 use crate::commands::slash::match_cmd::calculate_match_score;
+use crate::commands::slash::xfix::fix_x_links;
 use crate::handler::message::extract_call_query;
 use crate::response::regions::W_WEATHER_REGIONS;
 use crate::response::special::SpecialMessage;
@@ -288,4 +289,41 @@ fn test_message_pair_target_for() {
     assert_eq!(pair.target_for(100), 200);
     assert_eq!(pair.target_for(200), 100);
     assert_eq!(pair.target_for(999), 100);
+}
+
+#[test]
+fn test_fix_x_links_basic() {
+    assert_eq!(
+        fix_x_links("봐봐 https://x.com/user/status/123"),
+        Some("봐봐 https://fxtwitter.com/user/status/123".to_string())
+    );
+}
+
+#[test]
+fn test_fix_x_links_variants() {
+    assert_eq!(
+        fix_x_links("http://x.com/a https://www.x.com/b http://www.x.com/c"),
+        Some("http://fxtwitter.com/a https://fxtwitter.com/b http://fxtwitter.com/c".to_string())
+    );
+}
+
+#[test]
+fn test_fix_x_links_none() {
+    assert_eq!(fix_x_links("그냥 텍스트"), None);
+    assert_eq!(fix_x_links("https://fxtwitter.com/a"), None);
+    assert_eq!(fix_x_links("https://x.com.evil.com/a"), None);
+    assert_eq!(fix_x_links("https://notx.com/a"), None);
+}
+
+#[test]
+fn test_fix_x_links_suppressed() {
+    assert_eq!(fix_x_links("<https://x.com/a>"), None);
+}
+
+#[test]
+fn test_fix_x_links_query() {
+    assert_eq!(
+        fix_x_links("https://x.com/a?s=20"),
+        Some("https://fxtwitter.com/a?s=20".to_string())
+    );
 }

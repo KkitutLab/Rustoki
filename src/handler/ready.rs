@@ -208,6 +208,14 @@ pub async fn handle_ready(
                             .required(true),
                     )
                     .integration_types(vec![InstallationContext::Guild, InstallationContext::User]),
+                CreateCommand::new("xfix")
+                    .description("Auto-fix x.com links as fxtwitter in this server")
+                    .description_localized("ko", "이 서버에서 x.com 링크를 fxtwitter로 자동 변환")
+                    .integration_types(vec![InstallationContext::Guild]),
+                CreateCommand::new("xfix_del")
+                    .description("Disable x.com auto-fix in this server")
+                    .description_localized("ko", "이 서버에서 x.com 자동 변환 끄기")
+                    .integration_types(vec![InstallationContext::Guild]),
             ],
         )
         .await

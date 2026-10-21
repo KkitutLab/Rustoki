@@ -12,6 +12,7 @@ use tokio::time::sleep;
 
 use crate::commands::rtcmd::handle_rtcmd;
 use crate::commands::slash::trap::TrapIdsStore;
+use crate::commands::slash::xfix::{handle_x_message, XfixStore};
 use crate::constants::{BOT_USERID, CHANNELID_LOG_SECRET, GUILD_ID, KKITUT_USERID};
 use crate::db::{get_pool, get_pool_tokidm};
 use crate::dm::{find_dm_either_channel, find_dm_user_channel, relay_dm_message};
@@ -102,6 +103,7 @@ pub async fn handle_message(
     blacklist_guilds: &Arc<Mutex<Vec<u64>>>,
     dm_channels: &Arc<Mutex<Vec<(u64, u64)>>>,
     trap_ids: &TrapIdsStore,
+    xfix: &XfixStore,
     stop_flag: &Arc<AtomicBool>,
     stop_notify: &Arc<Notify>,
 ) {
@@ -173,6 +175,8 @@ pub async fn handle_message(
             }
             return;
         }
+
+        handle_x_message(ctx, &msg, xfix).await;
 
         let is_my_server = guild_id == GUILD_ID.get();
 

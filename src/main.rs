@@ -16,7 +16,7 @@ use dotenvy::dotenv;
 use serenity::all::GatewayIntents;
 use serenity::prelude::Client;
 use sqlx::Row;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::env;
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
@@ -139,6 +139,27 @@ async fn main() {
         ))
     };
 
+    let xfix_channels = {
+        if let Err(e) = sqlx::query(
+            "CREATE TABLE IF NOT EXISTS xfix_guild (guild_id BIGINT UNSIGNED NOT NULL PRIMARY KEY)",
+        )
+        .execute(pool)
+        .await
+        {
+            eprintln!("[ERROR] xfix_guild create table: {:?}", e);
+        }
+        let rows = sqlx::query("SELECT guild_id FROM xfix_guild")
+            .fetch_all(pool)
+            .await
+            .unwrap_or_default();
+
+        Arc::new(Mutex::new(
+            rows.iter()
+                .filter_map(|r| get_row_u64(r, "guild_id"))
+                .collect::<HashSet<u64>>(),
+        ))
+    };
+
     let mut client = Client::builder(TOKEN.get().unwrap(), intents)
         .event_handler(Handler {
             is_ready: Arc::new(AtomicBool::new(false)),
@@ -150,6 +171,7 @@ async fn main() {
             blacklist_guilds,
             dm_channels,
             trap_ids,
+            xfix_channels,
         })
         .await
         .expect("[ERROR] Client builder()");

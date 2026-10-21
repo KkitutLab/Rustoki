@@ -5,6 +5,7 @@ pub mod match_cmd;
 pub mod misc;
 pub mod spy;
 pub mod trap;
+pub mod xfix;
 
 use serenity::all::{
     CommandInteraction, ComponentInteraction, CreateAllowedMentions, CreateEmbed,
@@ -26,6 +27,7 @@ use match_cmd::handle_match;
 use misc::{handle_call, handle_dont_chat, handle_ping};
 use spy::{handle_spy_channel, handle_spy_data, handle_spy_profile};
 use trap::{handle_trap_list, handle_trap_remove, handle_trap_set, TrapIdsStore};
+use xfix::{handle_xfix, handle_xfix_del, XfixStore};
 
 pub async fn respond_ephemeral_embed(
     ctx: &Context,
@@ -58,6 +60,7 @@ pub async fn dispatch_slash_command(
     delete_messages: &DeleteMessagesStore,
     dm_channels: &Arc<Mutex<Vec<(u64, u64)>>>,
     trap_ids: &TrapIdsStore,
+    xfix: &XfixStore,
 ) {
     let lng = command.locale.as_str() == "ko";
     let cmdname = command.data.name.as_str();
@@ -95,6 +98,8 @@ pub async fn dispatch_slash_command(
         "z_trap_list" => handle_trap_list(ctx, command, trap_ids).await,
         "z_trap_set" => handle_trap_set(ctx, command, trap_ids, pool, lng).await,
         "z_trap_remove" => handle_trap_remove(ctx, command, trap_ids, pool, lng).await,
+        "xfix" => handle_xfix(ctx, command, xfix, pool, lng).await,
+        "xfix_del" => handle_xfix_del(ctx, command, xfix, pool, lng).await,
         "match" => handle_match(ctx, command, lng).await,
         _ => {
             if let Err(e) = command

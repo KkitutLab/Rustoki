@@ -18,6 +18,7 @@ use tokio::sync::{Mutex, Notify};
 
 use crate::commands::slash::delete::DeleteMessagesStore;
 use crate::commands::slash::trap::TrapIdsStore;
+use crate::commands::slash::xfix::XfixStore;
 use crate::db::get_pool;
 use crate::macros::er;
 use crate::response::{Resp, RespStore};
@@ -39,6 +40,7 @@ pub struct Handler {
     pub blacklist_guilds: Arc<Mutex<Vec<u64>>>,
     pub dm_channels: Arc<Mutex<Vec<(u64, u64)>>>,
     pub trap_ids: TrapIdsStore,
+    pub xfix_channels: XfixStore,
 }
 
 #[async_trait]
@@ -94,6 +96,7 @@ impl EventHandler for Handler {
             &self.blacklist_guilds,
             &self.dm_channels,
             &self.trap_ids,
+            &self.xfix_channels,
             &self.stop_flag,
             &self.stop_notify,
         )
@@ -111,6 +114,7 @@ impl EventHandler for Handler {
             &self.delete_messages,
             &self.dm_channels,
             &self.trap_ids,
+            &self.xfix_channels,
         )
         .await;
     }
