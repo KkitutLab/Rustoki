@@ -1,7 +1,7 @@
 use chrono::Utc;
 use serenity::all::{
-    CommandInteraction, CreateAllowedMentions, CreateEmbed, CreateInteractionResponse,
-    CreateInteractionResponseMessage, Permissions,
+    CommandInteraction, CreateAllowedMentions, CreateEmbed, CreateEmbedFooter,
+    CreateInteractionResponse, CreateInteractionResponseMessage, Permissions,
 };
 use serenity::prelude::Context;
 use sqlx::MySqlPool;
@@ -24,6 +24,11 @@ pub async fn handle_ping(ctx: &Context, command: &CommandInteraction) {
                     .embed(
                         CreateEmbed::new()
                             .title(format!("{}ms", elapsed_ms))
+                            .footer(CreateEmbedFooter::new(format!(
+                                "v{} ({})",
+                                env!("CARGO_PKG_VERSION"),
+                                env!("GIT_DESCRIBE")
+                            )))
                             .color(0xFF8888),
                     )
                     .allowed_mentions(CreateAllowedMentions::new().empty_users()),

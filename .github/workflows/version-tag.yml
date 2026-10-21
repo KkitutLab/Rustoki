@@ -1,0 +1,26 @@
+name: version-tag-check
+
+on:
+  push:
+    tags:
+      - "[0-9]+.[0-9]+.[0-9]+"
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref }}
+      - name: tag must equal Cargo.toml version
+        run: |
+          TAG="${GITHUB_REF#refs/tags/}"
+          VER="$(grep -m1 '^version' Cargo.toml | sed 's/.*"\(.*\)".*/\1/')"
+          echo "tag=$TAG cargo=$VER"
+          if [ "$TAG" != "$VER" ]; then
+            echo "ERROR: tag $TAG != Cargo.toml version $VER" >&2
+            exit 1
+          fi
+      - name: cargo metadata sanity check
+        run: |
+          cargo metadata --no-deps --format-version 1 >/dev/null

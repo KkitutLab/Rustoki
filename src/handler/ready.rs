@@ -1,6 +1,6 @@
 use serenity::all::{
     ActivityData, Command, CommandOptionType, CommandType, CreateCommand, CreateCommandOption,
-    CreateEmbed, CreateMessage, InstallationContext, OnlineStatus, Ready,
+    CreateEmbed, CreateEmbedFooter, CreateMessage, InstallationContext, OnlineStatus, Ready,
 };
 use serenity::prelude::Context;
 use sqlx::MySqlPool;
@@ -219,26 +219,43 @@ pub async fn handle_ready(
         }
     }
 
+    let version_line = format!(
+        "v{} ({})",
+        env!("CARGO_PKG_VERSION"),
+        env!("GIT_DESCRIBE")
+    );
+    println!("Rustoki {version_line}");
+
     let embed_on;
     if is_ready {
         #[cfg(debug_assertions)]
         {
             embed_on = CreateEmbed::new()
                 .title("DEBUG RECONNECTED")
+                .footer(CreateEmbedFooter::new(version_line))
                 .color(0x888888);
         }
         #[cfg(not(debug_assertions))]
         {
-            embed_on = CreateEmbed::new().title("RECONNECTED").color(0x0000FF);
+            embed_on = CreateEmbed::new()
+                .title("RECONNECTED")
+                .footer(CreateEmbedFooter::new(version_line))
+                .color(0x0000FF);
         }
     } else {
         #[cfg(debug_assertions)]
         {
-            embed_on = CreateEmbed::new().title("DEBUG").color(0x888888);
+            embed_on = CreateEmbed::new()
+                .title("DEBUG")
+                .footer(CreateEmbedFooter::new(version_line))
+                .color(0x888888);
         }
         #[cfg(not(debug_assertions))]
         {
-            embed_on = CreateEmbed::new().title("ON").color(0x0000FF);
+            embed_on = CreateEmbed::new()
+                .title("ON")
+                .footer(CreateEmbedFooter::new(version_line))
+                .color(0x0000FF);
         }
     }
 
