@@ -8,3 +8,6 @@ target
 
 .env
 .sqlx
+.deploy-state
+.deploy.lock
+deploy.log

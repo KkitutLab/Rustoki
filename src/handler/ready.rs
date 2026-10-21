@@ -9,7 +9,7 @@ use std::sync::Arc;
 use tokio::sync::Notify;
 
 use crate::constants::{BOT_USERID, CHANNELID_LOG_SECRET, GUILD_ID};
-use crate::tasks::{spawn_birthday_task, spawn_rainbow_task, spawn_role_gc_task};
+use crate::tasks::{spawn_birthday_task, spawn_deploy_watch_task, spawn_rainbow_task, spawn_role_gc_task};
 
 pub async fn handle_ready(
     ctx: &Context,
@@ -293,5 +293,7 @@ pub async fn handle_ready(
         spawn_rainbow_task(ctx.http.clone(), stop_flag.clone(), stop_notify.clone());
 
         spawn_role_gc_task(ctx.http.clone(), stop_flag.clone(), stop_notify.clone());
+
+        spawn_deploy_watch_task(ctx.http.clone(), stop_flag.clone(), stop_notify.clone());
     }
 }
