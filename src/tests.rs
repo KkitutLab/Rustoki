@@ -313,6 +313,9 @@ fn test_fix_x_links_none() {
     assert_eq!(fix_x_links("https://fxtwitter.com/a"), None);
     assert_eq!(fix_x_links("https://x.com.evil.com/a"), None);
     assert_eq!(fix_x_links("https://notx.com/a"), None);
+    assert_eq!(fix_x_links("https://x.com"), None);
+    assert_eq!(fix_x_links("https://x.com/"), None);
+    assert_eq!(fix_x_links("봐봐 https://x.com 봐봐"), None);
 }
 
 #[test]

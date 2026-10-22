@@ -41,11 +41,14 @@ pub fn fix_x_links(content: &str) -> Option<String> {
             let after = abs_pos + scheme.len();
             // `<https://x.com/...>` (임베드 억제)는 스킵
             let wrapped = abs_pos > 0 && out.as_bytes()[abs_pos - 1] == b'<';
-            // 뒤에 호스트 문자가 이어지면 다른 도메인이므로 스킵
-            let boundary_ok = out[after..].chars().next().is_none_or(|c| {
-                !(c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '_' | '~'))
-            });
-            if !wrapped && boundary_ok {
+            // 베어 도메인(https://x.com 단독)은 스킵: 경로(/...)가 있을 때만 변환
+            let rest = &out[after..];
+            let has_path = rest.len() > 1
+                && rest.starts_with('/')
+                && !rest[1..].chars().next().is_none_or(|c| {
+                    c.is_whitespace() || matches!(c, '/' | '<' | '>')
+                });
+            if !wrapped && has_path {
                 out.replace_range(abs_pos..after, replacement);
                 start = abs_pos + replacement.len();
                 changed = true;
